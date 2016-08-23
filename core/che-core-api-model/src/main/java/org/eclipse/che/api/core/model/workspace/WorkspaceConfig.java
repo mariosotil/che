@@ -46,20 +46,20 @@ public interface WorkspaceConfig {
     /**
      * Returns commands which are related to workspace,
      * when workspace doesn't contain commands returns empty list.
-     * It is optional, workspace may contain 0 or N commands
+     * It is optional, workspace may contain 0 or N commands.
      */
     List<? extends Command> getCommands();
 
     /**
      * Returns project configurations which are related to workspace,
      * when workspace doesn't contain projects returns empty list.
-     * It is optional, workspace may contain 0 or N project configurations
+     * It is optional, workspace may contain 0 or N project configurations.
      */
     List<? extends ProjectConfig> getProjects();
 
     /**
-     * Returns workspace environments.
-     * Workspace must contain at least 1 default environment and may contain N environments
+     * Returns mapping of environment names to environment configurations.
+     * Workspace must contain at least 1 default environment and may contain N environments.
      */
     Map<String, ? extends Environment> getEnvironments();
 }

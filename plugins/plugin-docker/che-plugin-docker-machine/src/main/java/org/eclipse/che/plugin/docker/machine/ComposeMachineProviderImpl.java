@@ -70,7 +70,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -234,6 +233,7 @@ public class ComposeMachineProviderImpl implements ComposeMachineInstanceProvide
             }
         };
 
+        String container = null;
         try {
             String image = prepareImage(namespace,
                                         workspaceId,
@@ -242,22 +242,23 @@ public class ComposeMachineProviderImpl implements ComposeMachineInstanceProvide
                                         service,
                                         progressMonitor);
 
-            String container = createContainer(namespace,
-                                               workspaceId,
-                                               machineId,
-                                               machineName,
-                                               isDev,
-                                               image,
-                                               networkName,
-                                               service);
+            container = createContainer(namespace,
+                                        workspaceId,
+                                        machineId,
+                                        machineName,
+                                        isDev,
+                                        image,
+                                        networkName,
+                                        service);
 
-            startContainer(container);
+            docker.startContainer(StartContainerParams.create(container));
 
             readContainerLogsInSeparateThread(container,
                                               workspaceId,
                                               machineId,
                                               machineLogger);
 
+            // TODO remove usage of isDev flag. Move this logic higher in calls hierarchy
             DockerNode node = dockerMachineFactory.createNode(workspaceId, container);
             if (isDev) {
                 node.bindWorkspace();
@@ -289,12 +290,13 @@ public class ComposeMachineProviderImpl implements ComposeMachineInstanceProvide
                                                        node,
                                                        machineLogger);
         } catch (RuntimeException | ServerException | NotFoundException | IOException e) {
+            cleanUpContainer(container);
             throw new ServerException(e.getLocalizedMessage());
         }
     }
 
     @Override
-    public void startNetwork(String networkName) throws ServerException {
+    public void createNetwork(String networkName) throws ServerException {
         try {
             docker.createNetwork(CreateNetworkParams.create(new NewNetwork().withName(networkName)
                                                                             .withCheckDuplicate(true)));
@@ -304,7 +306,7 @@ public class ComposeMachineProviderImpl implements ComposeMachineInstanceProvide
     }
 
     @Override
-    public void stopNetwork(String networkName) throws ServerException {
+    public void destroyNetwork(String networkName) throws ServerException {
         try {
             docker.removeNetwork(RemoveNetworkParams.create(networkName));
         } catch (NetworkNotFoundException ignore) {
@@ -412,8 +414,11 @@ public class ComposeMachineProviderImpl implements ComposeMachineInstanceProvide
                                    String image,
                                    String networkName,
                                    ComposeServiceImpl service) throws IOException {
-        long machineMemory = service.getMemLimit() * 1024L * 1024L;
-        long machineMemorySwap = memorySwapMultiplier == -1 ? -1 : (long)(machineMemory * memorySwapMultiplier);
+
+        long machineMemorySwap = memorySwapMultiplier == -1 ?
+                                 -1 :
+                                 (long)(service.getMemLimit() * memorySwapMultiplier);
+
         String containerName = generateContainerName(namespace, workspaceId, machineId, machineName);
 
         addSystemWideContainerSettings(workspaceId,
@@ -429,7 +434,7 @@ public class ComposeMachineProviderImpl implements ComposeMachineInstanceProvide
                   .withExtraHosts(allMachinesExtraHosts)
                   .withPublishAllPorts(true)
                   .withMemorySwap(machineMemorySwap)
-                  .withMemory(machineMemory)
+                  .withMemory(service.getMemLimit())
                   .withPrivileged(privilegeMode)
                   .withNetworkMode(networkName)
                   .withLinks(toArrayIfNotNull(service.getLinks()))
@@ -448,10 +453,6 @@ public class ComposeMachineProviderImpl implements ComposeMachineInstanceProvide
               .withEntrypoint(toArrayIfNotNull(service.getEntrypoint()))
               .withLabels(service.getLabels())
               .withNetworkingConfig(networkingConfig)
-//              .withVolumes(service.getVolumes()
-//                                  .stream()
-//                                  .collect(Collectors.toMap(Function.identity(),
-//                                                            volume -> new Volume())))
               .withEnv(service.getEnvironment()
                               .entrySet()
                               .stream()
@@ -463,6 +464,7 @@ public class ComposeMachineProviderImpl implements ComposeMachineInstanceProvide
                      .getId();
     }
 
+    // TODO move these changes to agents mechanism
     private void addSystemWideContainerSettings(String workspaceId,
                                                 boolean isDev,
                                                 ComposeServiceImpl composeService) throws IOException {
@@ -491,10 +493,6 @@ public class ComposeMachineProviderImpl implements ComposeMachineInstanceProvide
         composeService.getExpose().addAll(portsToExpose);
         composeService.getEnvironment().putAll(env);
         composeService.getVolumes().addAll(volumes);
-    }
-
-    private void startContainer(String container) throws IOException {
-        docker.startContainer(StartContainerParams.create(container));
     }
 
     private void readContainerLogsInSeparateThread(String container,
@@ -536,20 +534,21 @@ public class ComposeMachineProviderImpl implements ComposeMachineInstanceProvide
                                                             machineName);
     }
 
-    private void cleanUpContainer(Optional<String> containerIdOptional) {
+    private void cleanUpContainer(String containerId) {
         try {
-            if (containerIdOptional.isPresent()) {
-                String containerId = containerIdOptional.get();
-                docker.removeContainer(
-                        RemoveContainerParams.create(containerId).withRemoveVolumes(true).withForce(true));
+            if (containerId != null) {
+                docker.removeContainer(RemoveContainerParams.create(containerId)
+                                                            .withRemoveVolumes(true)
+                                                            .withForce(true));
             }
         } catch (Exception ex) {
-            LOG.error("Failed to remove docker container.", ex);
+            LOG.error("Failed to remove docker container {}", containerId, ex);
         }
     }
 
     // workspaceId parameter is required, because in case of separate storage for tokens
     // you need to know exactly which workspace and which user to apply the token.
+    // TODO should we move that to agents mechanism?
     protected String getUserToken(String wsId) {
         return EnvironmentContext.getCurrent().getSubject().getToken();
     }
@@ -600,6 +599,7 @@ public class ComposeMachineProviderImpl implements ComposeMachineInstanceProvide
         return esc;
     }
 
+    /** Converts list to array if it is not null, otherwise returns null */
     private String[] toArrayIfNotNull(List<String> list) {
         if (list == null) {
             return null;

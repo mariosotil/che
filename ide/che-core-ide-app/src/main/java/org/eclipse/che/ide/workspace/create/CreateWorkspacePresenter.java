@@ -235,10 +235,12 @@ public class CreateWorkspacePresenter implements CreateWorkspaceView.ActionDeleg
         ExtendedMachineDto machine = dtoFactory.createDto(ExtendedMachineDto.class)
                                                .withAgents(Collections.singletonList("ws-agent"));
 
+        // TODO use machine name from YAML because if machine name differ workspace start will fail
         EnvironmentDto environment = dtoFactory.createDto(EnvironmentDto.class)
                                                .withRecipe(recipe)
                                                .withMachines(Collections.singletonMap(WS_MACHINE_NAME, machine));
 
+        // TODO fix creation by searching stack
         return dtoFactory.createDto(WorkspaceConfigDto.class)
                          .withName(wsName)
                          .withDefaultEnv(wsName)

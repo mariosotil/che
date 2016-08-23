@@ -14,10 +14,8 @@ import com.google.inject.AbstractModule;
 import com.google.inject.multibindings.Multibinder;
 import com.google.inject.name.Names;
 
-import org.eclipse.che.api.environment.server.compose.ComposeMachineInstanceProvider;
 import org.eclipse.che.api.machine.shared.Constants;
 import org.eclipse.che.inject.DynaModule;
-import org.eclipse.che.plugin.docker.machine.ComposeMachineProviderImpl;
 
 /** @author andrew00x */
 @DynaModule
@@ -86,7 +84,8 @@ public class WsMasterModule extends AbstractModule {
                 Multibinder.newSetBinder(binder(), org.eclipse.che.api.machine.server.spi.InstanceProvider.class);
         machineImageProviderMultibinder.addBinding().to(org.eclipse.che.plugin.docker.machine.DockerInstanceProvider.class);
 
-        bind(ComposeMachineInstanceProvider.class).to(ComposeMachineProviderImpl.class);
+        bind(org.eclipse.che.api.environment.server.compose.ComposeMachineInstanceProvider.class)
+                .to(org.eclipse.che.plugin.docker.machine.ComposeMachineProviderImpl.class);
 
         install(new org.eclipse.che.api.core.rest.CoreRestModule());
         install(new org.eclipse.che.api.core.util.FileCleaner.FileCleanerModule());

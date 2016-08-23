@@ -21,10 +21,13 @@ import java.util.Map;
 public interface Environment {
     /**
      * Returns the recipe (the main script) to define this environment (compose, kubernetes pod).
-     * Type of this recipe defines engine for composing machines network runtime
+     * Type of this recipe defines engine for composing machines network runtime.
      */
     EnvironmentRecipe getRecipe();
 
+    /**
+     * Returns mapping of machine name to additional configuration of machine.
+     */
     Map<String, ? extends ExtendedMachine> getMachines();
 
     // TODO external servers

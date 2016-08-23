@@ -14,10 +14,18 @@ import java.util.List;
 import java.util.Map;
 
 /**
+ * Additional information about machine which is needed for purposes of CHE.
+ *
  * @author Alexander Garagatyi
  */
 public interface ExtendedMachine {
+    /**
+     * Returns list of agents that should be deployed into machine.
+     */
     List<String> getAgents();
 
+    /**
+     * Returns mapping of references to configurations of servers deployed into machine.
+     */
     Map<String, ? extends ServerConf2> getServers();
 }

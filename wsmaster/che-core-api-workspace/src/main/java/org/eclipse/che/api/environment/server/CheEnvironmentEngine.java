@@ -22,7 +22,6 @@ import org.eclipse.che.api.core.model.machine.MachineLogMessage;
 import org.eclipse.che.api.core.model.machine.MachineSource;
 import org.eclipse.che.api.core.model.machine.MachineStatus;
 import org.eclipse.che.api.core.model.workspace.Environment;
-import org.eclipse.che.api.core.model.workspace.ExtendedMachine;
 import org.eclipse.che.api.core.notification.EventService;
 import org.eclipse.che.api.core.notification.EventSubscriber;
 import org.eclipse.che.api.core.util.AbstractLineConsumer;
@@ -39,6 +38,7 @@ import org.eclipse.che.api.environment.server.exception.EnvironmentNotRunningExc
 import org.eclipse.che.api.machine.server.MachineInstanceProviders;
 import org.eclipse.che.api.machine.server.event.InstanceStateEvent;
 import org.eclipse.che.api.machine.server.exception.MachineException;
+import org.eclipse.che.api.machine.server.model.impl.LimitsImpl;
 import org.eclipse.che.api.machine.server.model.impl.MachineConfigImpl;
 import org.eclipse.che.api.machine.server.model.impl.MachineImpl;
 import org.eclipse.che.api.machine.server.model.impl.MachineLogMessageImpl;
@@ -138,7 +138,6 @@ public class CheEnvironmentEngine {
             if (environment == null) {
                 throw new EnvironmentNotRunningException("Environment with ID '" + workspaceId + "' is not found");
             }
-            // TODO if outside of lock will return last snapshot of of state so it is OK
             return new ArrayList<>(environment.machines);
         }
     }
@@ -164,7 +163,6 @@ public class CheEnvironmentEngine {
         if (environment == null) {
             throw new EnvironmentNotRunningException("Environment with ID '" + workspaceId + "' is not found");
         }
-        // TODO outside of lock will return last snapshot of of state so it is OK
         return environment.machines.stream()
                                    .filter(instance -> instance.getId().equals(machineId))
                                    .findAny()
@@ -201,7 +199,8 @@ public class CheEnvironmentEngine {
                                 boolean recover,
                                 MessageConsumer<MachineLogMessage> messageConsumer) throws ServerException,
                                                                                            ConflictException {
-        String networkId = NameGenerator.generate(workspaceId, 16);
+        // add random chars to ensure that old environments that weren't removed by some reason won't prevent start
+        String networkId = NameGenerator.generate(workspaceId + "_", 16);
 
         initializeEnvironment(workspaceId,
                               envName,
@@ -260,7 +259,7 @@ public class CheEnvironmentEngine {
 
         // long operation - perform out of lock
         if (machinesCopy != null) {
-            stopMachines(environmentHolder.networkId, machinesCopy);
+            destroyEnvironment(environmentHolder.networkId, machinesCopy);
         }
     }
 
@@ -356,23 +355,8 @@ public class CheEnvironmentEngine {
                                                machineId, workspaceId));
         }
 
-        // TODO move to method
-        // out of lock to prevent blocking on event processing by subscribers
-        eventService.publish(newDto(MachineStatusEvent.class)
-                                     .withEventType(MachineStatusEvent.EventType.DESTROYING)
-                                     .withDev(targetMachine.getConfig().isDev())
-                                     .withMachineName(targetMachine.getConfig().getName())
-                                     .withMachineId(machineId)
-                                     .withWorkspaceId(workspaceId));
-
-        targetMachine.destroy();
-
-        eventService.publish(newDto(MachineStatusEvent.class)
-                                     .withEventType(MachineStatusEvent.EventType.DESTROYED)
-                                     .withDev(targetMachine.getConfig().isDev())
-                                     .withMachineName(targetMachine.getConfig().getName())
-                                     .withMachineId(machineId)
-                                     .withWorkspaceId(workspaceId));
+        // out of lock to prevent blocking by potentially long-running method
+        destroyMachine(targetMachine);
     }
 
     /**
@@ -494,12 +478,16 @@ public class CheEnvironmentEngine {
     }
 
     private String findDevMachineName(Environment env) throws ServerException {
-        for (Map.Entry<String, ? extends ExtendedMachine> entry : env.getMachines().entrySet()) {
-            if (entry.getValue().getAgents().contains("ws-agent")) {
-                return entry.getKey();
-            }
-        }
-        throw new ServerException("Agent 'ws-agent' is not found in any of environment machines");
+        return env.getMachines()
+                  .entrySet()
+                  .stream()
+                  .filter(entry -> entry.getValue()
+                                        .getAgents()
+                                        .contains("ws-agent"))
+                  .findAny()
+                  .orElseThrow(
+                          () -> new ServerException("Agent 'ws-agent' is not found in any of environment machines"))
+                  .getKey();
     }
 
     /**
@@ -526,7 +514,7 @@ public class CheEnvironmentEngine {
         }
 
         try {
-            composeProvider.startNetwork(networkId);// TODO if several networks exists network creation fails
+            composeProvider.createNetwork(networkId);// TODO find why if several networks exists network creation fails
 
             String machineName = queuePeekOrFail(workspaceId);
             while (machineName != null) {
@@ -619,7 +607,7 @@ public class CheEnvironmentEngine {
             }
 
             try {
-                stopMachines(env.networkId, env.machines);
+                destroyEnvironment(env.networkId, env.machines);
             } catch (Exception remEx) {
                 LOG.error(remEx.getLocalizedMessage(), remEx);
             }
@@ -648,7 +636,8 @@ public class CheEnvironmentEngine {
                        machineId,
                        machineName,
                        creator,
-                       isDev);
+                       isDev,
+                       service.getMemLimit());
 
             eventService.publish(newDto(MachineStatusEvent.class)
                                          .withEventType(MachineStatusEvent.EventType.CREATING)
@@ -740,21 +729,23 @@ public class CheEnvironmentEngine {
                             String machineId,
                             String machineName,
                             String creator,
-                            boolean isDev) throws ServerException {
-        Instance machine = new NoOpMachineInstance(MachineImpl.builder()
-                                                              .setConfig(new MachineConfigImpl(isDev,
-                                                                                               machineName,
-                                                                                               "docker",
-                                                                                               null,
-                                                                                               null, // TODO
-                                                                                               Collections.emptyList(),
-                                                                                               Collections.emptyMap()))
-                                                              .setId(machineId)
-                                                              .setWorkspaceId(workspaceId)
-                                                              .setStatus(MachineStatus.CREATING)
-                                                              .setEnvName(envName)
-                                                              .setOwner(creator)
-                                                              .build());
+                            boolean isDev,
+                            long memLimitBytes) throws ServerException {
+        MachineImpl machineImpl = MachineImpl.builder()
+                                             .setConfig(new MachineConfigImpl(isDev,
+                                                                              machineName,
+                                                                              "docker",
+                                                                              null,
+                                                                              new LimitsImpl(bytesToMB(memLimitBytes)),
+                                                                              Collections.emptyList(),
+                                                                              Collections.emptyMap()))
+                                             .setId(machineId)
+                                             .setWorkspaceId(workspaceId)
+                                             .setStatus(MachineStatus.CREATING)
+                                             .setEnvName(envName)
+                                             .setOwner(creator)
+                                             .build();
+        Instance machine = new NoOpMachineInstance(machineImpl);
         try (StripedLocks.WriteLock lock = stripedLocks.acquireWriteLock(workspaceId)) {
             ensurePreDestroyIsNotExecuted();
             EnvironmentHolder environmentHolder = environments.get(workspaceId);
@@ -766,6 +757,10 @@ public class CheEnvironmentEngine {
                                workspaceId));
             }
         }
+    }
+
+    private int bytesToMB(long bytes) {
+        return (int)Size.parseSizeToMegabytes(Long.toString(bytes) + "b");
     }
 
     private void removeMachine(String workspaceId,
@@ -831,13 +826,13 @@ public class CheEnvironmentEngine {
     }
 
     /**
-     * Stops workspace by destroying all its machines and removing it from in memory storage.
+     * Destroys provided machines and associated network.
      */
-    private void stopMachines(String networkId,
-                              List<Instance> machines) {
+    private void destroyEnvironment(String networkId,
+                                    List<Instance> machines) {
         for (Instance machine : machines) {
             try {
-                machine.destroy();
+                destroyMachine(machine);
             } catch (RuntimeException | MachineException ex) {
                 LOG.error(format("Could not destroy machine '%s' of workspace '%s'",
                                  machine.getId(),
@@ -846,10 +841,28 @@ public class CheEnvironmentEngine {
             }
         }
         try {
-            composeProvider.stopNetwork(networkId);
-        } catch (ServerException netExc) {
+            composeProvider.destroyNetwork(networkId);
+        } catch (RuntimeException | ServerException netExc) {
             LOG.error(netExc.getLocalizedMessage(), netExc);
         }
+    }
+
+    private void destroyMachine(Instance machine) throws MachineException {
+        eventService.publish(newDto(MachineStatusEvent.class)
+                                     .withEventType(MachineStatusEvent.EventType.DESTROYING)
+                                     .withDev(machine.getConfig().isDev())
+                                     .withMachineName(machine.getConfig().getName())
+                                     .withMachineId(machine.getId())
+                                     .withWorkspaceId(machine.getWorkspaceId()));
+
+        machine.destroy();
+
+        eventService.publish(newDto(MachineStatusEvent.class)
+                                     .withEventType(MachineStatusEvent.EventType.DESTROYED)
+                                     .withDev(machine.getConfig().isDev())
+                                     .withMachineName(machine.getConfig().getName())
+                                     .withMachineId(machine.getId())
+                                     .withWorkspaceId(machine.getWorkspaceId()));
     }
 
     @SuppressWarnings("unused")

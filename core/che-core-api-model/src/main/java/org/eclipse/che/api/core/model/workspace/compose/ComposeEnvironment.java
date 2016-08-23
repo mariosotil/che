@@ -13,14 +13,23 @@ package org.eclipse.che.api.core.model.workspace.compose;
 import java.util.Map;
 
 /**
+ * Description of docker compose services file.
+ *
  * @author Alexander Garagatyi
  */
 public interface ComposeEnvironment {
-    //todo
+    // TODO
     // will we support network entry
     // will we support version 1?
     // will we support volumes
+
+    /**
+     * Version of compose syntax.
+     */
     String getVersion();
 
+    /**
+     * Mapping of compose services names to services configuration.
+     */
     Map<String, ? extends ComposeService> getServices();
 }
