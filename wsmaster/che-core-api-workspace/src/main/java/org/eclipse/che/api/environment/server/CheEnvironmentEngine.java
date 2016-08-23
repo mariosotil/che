@@ -36,8 +36,10 @@ import org.eclipse.che.api.environment.server.compose.model.ComposeEnvironmentIm
 import org.eclipse.che.api.environment.server.compose.model.ComposeServiceImpl;
 import org.eclipse.che.api.environment.server.exception.EnvironmentNotRunningException;
 import org.eclipse.che.api.machine.server.MachineInstanceProviders;
+import org.eclipse.che.api.machine.server.dao.SnapshotDao;
 import org.eclipse.che.api.machine.server.event.InstanceStateEvent;
 import org.eclipse.che.api.machine.server.exception.MachineException;
+import org.eclipse.che.api.machine.server.exception.SourceNotFoundException;
 import org.eclipse.che.api.machine.server.model.impl.LimitsImpl;
 import org.eclipse.che.api.machine.server.model.impl.MachineConfigImpl;
 import org.eclipse.che.api.machine.server.model.impl.MachineImpl;
@@ -94,6 +96,7 @@ public class CheEnvironmentEngine {
     private final File                           machineLogsDir;
     private final MachineInstanceProviders       machineInstanceProviders;
     private final String                         defaultMachineMemorySizeMB;
+    private final SnapshotDao                    snapshotDao;
     private final EventService                   eventService;
     private final ComposeFileParser              composeFileParser;
     private final ComposeServicesStartStrategy   startStrategy;
@@ -102,13 +105,15 @@ public class CheEnvironmentEngine {
     private volatile boolean isPreDestroyInvoked;
 
     @Inject
-    public CheEnvironmentEngine(MachineInstanceProviders machineInstanceProviders,
+    public CheEnvironmentEngine(SnapshotDao snapshotDao,
+                                MachineInstanceProviders machineInstanceProviders,
                                 @Named("machine.logs.location") String machineLogsDir,
                                 @Named("machine.default_mem_size_mb") int defaultMachineMemorySizeMB,
                                 EventService eventService,
                                 ComposeFileParser composeFileParser,
                                 ComposeServicesStartStrategy startStrategy,
                                 ComposeMachineInstanceProvider composeProvider) {
+        this.snapshotDao = snapshotDao;
         this.eventService = eventService;
         this.composeFileParser = composeFileParser;
         this.startStrategy = startStrategy;
@@ -433,6 +438,7 @@ public class CheEnvironmentEngine {
     public void removeSnapshot(SnapshotImpl snapshot) throws ServerException {
         final String instanceType = snapshot.getType();
         try {
+            // TODO do not use docker instance provider here
             final InstanceProvider instanceProvider = machineInstanceProviders.getProvider(instanceType);
             instanceProvider.removeInstanceSnapshot(snapshot.getMachineSource());
         } catch (NotFoundException e) {
@@ -514,7 +520,8 @@ public class CheEnvironmentEngine {
         }
 
         try {
-            composeProvider.createNetwork(networkId);// TODO find why if several networks exists network creation fails
+            // TODO find why if several networks exists network creation fails
+            composeProvider.createNetwork(networkId);
 
             String machineName = queuePeekOrFail(workspaceId);
             while (machineName != null) {
@@ -650,35 +657,43 @@ public class CheEnvironmentEngine {
                                              machineId,
                                              machineName);
 
-            instance = composeProvider.startService(namespace,
-                                                    workspaceId,
-                                                    envName,
-                                                    machineId,
-                                                    machineName,
-                                                    isDev,
-                                                    networkId,
-                                                    service,
-                                                    machineLogger);
-//            try {
-//            TODO modify compose service image value
-//            if (recover) {
-//                final SnapshotImpl snapshot = snapshotDao.getSnapshot(workspaceId,
-//                                                                      environmentName,
-//                                                                      machine.getConfig().getName());
-//                machine.getConfig().setSource(snapshot.getMachineSource());
-//            }
-//            instance = instanceInstance();
-//            } catch (SourceNotFoundException e) {
-//                if (recover) {
-//                TODO modify compose service image back and rerun
-//                    LOG.error("Image of snapshot for machine " + machine.getConfig().getName() + " not found. " +
-//                              "Machine will be created from origin source");
-//                    machine.getConfig().setSource(sourceCopy);
-//                    instance = instanceProvider.createInstance(machine, machineLogger);
-//                } else {
-//                    throw e;
-//                }
-//            }
+            ComposeServiceImpl originService = new ComposeServiceImpl(service);
+            try {
+                if (recover) {
+                    SnapshotImpl snapshot = snapshotDao.getSnapshot(workspaceId,
+                                                                    envName,
+                                                                    machineName);
+                    service.setBuild(null);
+                    service.setImage(snapshot.getMachineSource().getLocation());
+                }
+
+                instance = composeProvider.startService(namespace,
+                                                        workspaceId,
+                                                        envName,
+                                                        machineId,
+                                                        machineName,
+                                                        isDev,
+                                                        networkId,
+                                                        service,
+                                                        machineLogger);
+            } catch (SourceNotFoundException e) {
+                if (recover) {
+                    LOG.error("Image of snapshot for machine " + machineName + " not found. " +
+                              "Machine will be created from origin source");
+                    service = originService;
+                    instance = composeProvider.startService(namespace,
+                                                            workspaceId,
+                                                            envName,
+                                                            machineId,
+                                                            machineName,
+                                                            isDev,
+                                                            networkId,
+                                                            service,
+                                                            machineLogger);
+                } else {
+                    throw e;
+                }
+            }
             replaceMachine(instance);
 
             eventService.publish(newDto(MachineStatusEvent.class)
@@ -720,7 +735,7 @@ public class CheEnvironmentEngine {
                                          .withMachineId(machineId)
                                          .withWorkspaceId(workspaceId));
 
-            throw e;
+            throw new ServerException(e.getLocalizedMessage(), e);
         }
     }
 
