@@ -49,6 +49,18 @@
               "path": "/any/path"
             }
           ]
+        },
+        {
+          "name": "site",
+          "type": "docker",
+          "dev": false,
+          "limits": {
+            "ram": 1024
+          },
+          "source": {
+            "type": "dockerfile",
+            "content": "FROM codenvy/ubuntu_jdk8"
+          }
         }
       ]
     }
