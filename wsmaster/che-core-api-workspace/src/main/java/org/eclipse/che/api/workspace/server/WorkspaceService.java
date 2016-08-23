@@ -470,7 +470,7 @@ public class WorkspaceService extends Service {
                                        String id,
                                        @ApiParam(value = "The new environment", required = true)
                                        EnvironmentDto newEnvironment,
-                                       @ApiParam("The name of the environment")
+                                       @ApiParam(value = "The name of the environment", required = true)
                                        @QueryParam("name")
                                        String envName) throws ServerException,
                                                                              BadRequestException,
@@ -478,6 +478,7 @@ public class WorkspaceService extends Service {
                                                                              ConflictException,
                                                                              ForbiddenException {
         requiredNotNull(newEnvironment, "New environment");
+        requiredNotNull(envName, "New environment name");
         final WorkspaceImpl workspace = workspaceManager.getWorkspace(id);
         workspace.getConfig().getEnvironments().put(envName, new EnvironmentImpl(newEnvironment));
         validator.validateConfig(workspace.getConfig());
@@ -509,11 +510,10 @@ public class WorkspaceService extends Service {
                                                                         ForbiddenException {
         requiredNotNull(update, "Environment description");
         final WorkspaceImpl workspace = workspaceManager.getWorkspace(id);
-        final Map<String, EnvironmentImpl> environments = workspace.getConfig().getEnvironments();
-        if (environments.remove(envName) == null) {
+        EnvironmentImpl previous = workspace.getConfig().getEnvironments().put(envName, new EnvironmentImpl(update));
+        if (previous == null) {
             throw new NotFoundException(format("Workspace '%s' doesn't contain environment '%s'", id, envName));
         }
-        workspace.getConfig().getEnvironments().put(envName, new EnvironmentImpl(update));
         validator.validateConfig(workspace.getConfig());
         return linksInjector.injectLinks(asDto(workspaceManager.updateWorkspace(id, workspace)), getServiceContext());
     }

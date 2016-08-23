@@ -35,6 +35,8 @@ import static java.lang.String.format;
 import static org.slf4j.LoggerFactory.getLogger;
 
 /**
+ * Parses containers description in an environment to {@link ComposeEnvironmentImpl}.
+ *
  * @author Alexander Garagatyi
  */
 public class ComposeFileParser {
@@ -49,11 +51,12 @@ public class ComposeFileParser {
     }
 
     public ComposeEnvironmentImpl parse(Environment environment) throws ServerException {
-        // assert env
-        // assert recipe
-        // assert content type
-        // assert content || location
-        // assert type
+        checkNotNull(environment, "Environment should not be null");
+        checkNotNull(environment.getRecipe(), "Environment recipe should not be null");
+        checkNotNull(environment.getRecipe().getContentType(), "Content type of environment recipe should not be null");
+        checkArgument(environment.getRecipe().getContent() != null || environment.getRecipe().getLocation() != null,
+                      "Recipe of environment must contain location or content");
+
         String recipeContent = getContentOfRecipe(environment.getRecipe());
         return parseEnvironmentRecipeContent(recipeContent,
                                              environment.getRecipe().getContentType());
@@ -68,7 +71,7 @@ public class ComposeFileParser {
     }
 
     private ComposeEnvironmentImpl parseEnvironmentRecipeContent(String recipeContent, String contentType) {
-        ComposeEnvironmentImpl composeEnvironment;// TODO do we need JSON here?
+        ComposeEnvironmentImpl composeEnvironment;
         switch (contentType) {
             case "application/x-yaml":
             case "text/yaml":
@@ -114,6 +117,28 @@ public class ComposeFileParser {
             if (file != null && !file.delete()) {
                 LOG.error(String.format("Removal of recipe file %s failed.", file.getAbsolutePath()));
             }
+        }
+    }
+
+    /**
+     * Checks that object reference is not null, throws {@link IllegalArgumentException} otherwise.
+     *
+     * <p>Exception uses error message built from error message template and error message parameters.
+     */
+    private static void checkNotNull(Object object, String errorMessageTemplate, Object... errorMessageParams) {
+        if (object == null) {
+            throw new IllegalArgumentException(format(errorMessageTemplate, errorMessageParams));
+        }
+    }
+
+    /**
+     * Checks that expression is true, throws {@link IllegalArgumentException} otherwise.
+     *
+     * <p>Exception uses error message built from error message template and error message parameters.
+     */
+    private static void checkArgument(boolean expression, String errorMessage) {
+        if (!expression) {
+            throw new IllegalArgumentException(errorMessage);
         }
     }
 }

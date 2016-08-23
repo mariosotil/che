@@ -21,10 +21,6 @@ import java.util.stream.Collectors;
  * @author Alexander Garagatyi
  */
 public class ComposeEnvironmentImpl implements ComposeEnvironment {
-    //todo
-    // will we support network entry
-    // will we support version 1?
-    // will we support volumes
     private String                          version;
     private Map<String, ComposeServiceImpl> services;
 
