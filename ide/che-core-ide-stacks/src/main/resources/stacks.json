@@ -39,26 +39,23 @@
       "origin": "codenvy/alpine-jdk:nightly"
     },
     "workspaceConfig": {
-      "environments": [
-        {
-          "name": "default",
-          "recipe": null,
-          "machineConfigs": [
-            {
-              "name": "default",
-              "limits": {
-                "ram": 1000
-              },
-              "source": {
-                "location": "stub",
-                "type": "dockerfile"
-              },
-              "type": "docker",
-              "dev": true
+      "environments": {
+        "default": {
+          "machines": {
+            "dev-machine": {
+              "agents": [
+                "ws-agent"
+              ],
+              "servers": {}
             }
-          ]
+          },
+          "recipe": {
+            "content": "services:\n  dev-machine:\n    image: codenvy/alpine-jdk:nightly\n    mem_limit: 1073741824",
+            "contentType": "application/x-yaml",
+            "type": "compose"
+          }
         }
-      ],
+      },
       "name": "Che in Che",
       "defaultEnv": "default",
       "description": null,
@@ -124,7 +121,7 @@
               "agents": [
                 "ws-agent"
               ],
-              "servers": []
+              "servers": {}
             }
           },
           "recipe": {
@@ -183,7 +180,7 @@
               "agents": [
                 "ws-agent"
               ],
-              "servers": []
+              "servers": {}
             }
           },
           "recipe": {
@@ -247,7 +244,7 @@
               "agents": [
                 "ws-agent"
               ],
-              "servers": []
+              "servers": {}
             }
           },
           "recipe": {
@@ -320,7 +317,7 @@
               "agents": [
                 "ws-agent"
               ],
-              "servers": []
+              "servers": {}
             }
           },
           "recipe": {
@@ -387,7 +384,7 @@
               "agents": [
                 "ws-agent"
               ],
-              "servers": []
+              "servers": {}
             }
           },
           "recipe": {
@@ -464,7 +461,7 @@
               "agents": [
                 "ws-agent"
               ],
-              "servers": []
+              "servers": {}
             }
           },
           "recipe": {
@@ -539,7 +536,7 @@
               "agents": [
                 "ws-agent"
               ],
-              "servers": []
+              "servers": {}
             }
           },
           "recipe": {
@@ -622,7 +619,7 @@
               "agents": [
                 "ws-agent"
               ],
-              "servers": []
+              "servers": {}
             }
           },
           "recipe": {
@@ -698,7 +695,7 @@
               "agents": [
                 "ws-agent"
               ],
-              "servers": []
+              "servers": {}
             }
           },
           "recipe": {
@@ -785,7 +782,7 @@
               "agents": [
                 "ws-agent"
               ],
-              "servers": []
+              "servers": {}
             }
           },
           "recipe": {
@@ -861,7 +858,7 @@
               "agents": [
                 "ws-agent"
               ],
-              "servers": []
+              "servers": {}
             }
           },
           "recipe": {
@@ -933,7 +930,7 @@
               "agents": [
                 "ws-agent"
               ],
-              "servers": []
+              "servers": {}
             }
           },
           "recipe": {
@@ -1000,7 +997,7 @@
               "agents": [
                 "ws-agent"
               ],
-              "servers": []
+              "servers": {}
             }
           },
           "recipe": {
@@ -1078,7 +1075,7 @@
               "agents": [
                 "ws-agent"
               ],
-              "servers": []
+              "servers": {}
             }
           },
           "recipe": {
@@ -1159,7 +1156,7 @@
               "agents": [
                 "ws-agent"
               ],
-              "servers": []
+              "servers": {}
             }
           },
           "recipe": {
@@ -1230,7 +1227,7 @@
               "agents": [
                 "ws-agent"
               ],
-              "servers": []
+              "servers": {}
             }
           },
           "recipe": {
@@ -1298,7 +1295,7 @@
               "agents": [
                 "ws-agent"
               ],
-              "servers": []
+              "servers": {}
             }
           },
           "recipe": {
@@ -1385,7 +1382,7 @@
               "agents": [
                 "ws-agent"
               ],
-              "servers": []
+              "servers": {}
             }
           },
           "recipe": {
@@ -1449,7 +1446,7 @@
               "agents": [
                 "ws-agent"
               ],
-              "servers": []
+              "servers": {}
             }
           },
           "recipe": {
@@ -1506,7 +1503,7 @@
               "agents": [
                 "ws-agent"
               ],
-              "servers": []
+              "servers": {}
             }
           },
           "recipe": {
