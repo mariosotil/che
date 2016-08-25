@@ -34,6 +34,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import static com.google.common.primitives.Ints.tryParse;
 import static java.lang.String.format;
 import static java.util.Collections.singletonMap;
 
@@ -170,56 +171,51 @@ public class WorkspaceConfigAdapter {
         final JsonObject newEnvironmentsObj = new JsonObject();
         for (JsonElement oldEnvEl : oldEnvironmentsArr) {
             final JsonObject oldEnvObj = oldEnvEl.getAsJsonObject();
-            final JsonObject newEnvObj = new JsonObject();
-
-            // Check the name first
             if (!oldEnvObj.has("name")) {
                 throw new BadRequestException("Bad format, environment name is missing");
             }
             final String envName = oldEnvObj.get("name").getAsString();
-
-            // Check machineConfigs field is present
-            if (!oldEnvObj.has("machineConfigs") || !oldEnvObj.get("machineConfigs").isJsonArray()) {
-                throw new BadRequestException(format("Bad format, environment '%s' must declare at least one machine config", envName));
-            }
-
-            // Convert old machine configs to new ones
-            final Map<String, Service> services = new LinkedHashMap<>();
-            final JsonObject newMachinesObj = new JsonObject();
-            for (JsonElement machineConfigEl : oldEnvObj.get("machineConfigs").getAsJsonArray()) {
-                if (!machineConfigEl.isJsonObject()) {
-                    throw new BadRequestException(format("Bad format of the machine in environment '%s', " +
-                                                         "machine config must be json object", envName));
-                }
-                final JsonObject oldMachineConfObj = machineConfigEl.getAsJsonObject();
-
-                // Check the name field is present
-                if (!oldMachineConfObj.has("name")) {
-                    throw new BadRequestException(format("Bad format of the machine in environment '%s', machine name is missing",
-                                                         envName));
-                }
-                final String machineName = oldMachineConfObj.get("name").getAsString();
-                newMachinesObj.add(machineName, asMachine(oldMachineConfObj, machineName, envName));
-                services.put(machineName, asService(oldMachineConfObj, envName, machineName));
-            }
-            newEnvObj.add("machines", newMachinesObj);
-
-            // Adapt recipe
-            final JsonObject recipeObj = new JsonObject();
-            recipeObj.addProperty("type", "compose");
-            recipeObj.addProperty("contentType", "application/x-yaml");
-            recipeObj.addProperty("content", new Yaml().dumpAsMap(singletonMap("services", services)));
-
-            newEnvObj.add("recipe", recipeObj);
-            newEnvironmentsObj.add(envName, newEnvObj);
+            newEnvironmentsObj.add(envName, asEnvironment(oldEnvObj, envName));
         }
         confSourceObj.add("environments", newEnvironmentsObj);
         return confSourceObj;
     }
 
-    private static JsonObject asMachine(JsonObject oldMachineConfObj, String machineName, String envName) throws BadRequestException {
-        final JsonObject newMachineObj = new JsonObject();
+    /** Converts environment from old format to a new one. */
+    private JsonObject asEnvironment(JsonObject oldEnvObj, String envName) throws BadRequestException, ServerException {
+        final JsonObject newEnvObj = new JsonObject();
+        // nothing to convert, machine configs are missing, it is up to
+        // component which will use adapted data to fail if machines are required
+        if (!oldEnvObj.has("machineConfigs") || !oldEnvObj.get("machineConfigs").isJsonArray()) {
+            return newEnvObj;
+        }
+        // old machine config data needs to be distributed between
+        // new machine object and environment recipe
+        final Map<String, Service> recipeServices = new LinkedHashMap<>();
+        final JsonObject newMachinesObj = new JsonObject();
+        for (JsonElement oldMachineConfEl : oldEnvObj.get("machineConfigs").getAsJsonArray()) {
+            final JsonObject oldMachineConfObj = oldMachineConfEl.getAsJsonObject();
+            if (!oldMachineConfObj.has("name")) {
+                throw new BadRequestException(format("Bad format of the machine in environment '%s', machine name is missing",
+                                                     envName));
+            }
+            final String machineName = oldMachineConfObj.get("name").getAsString();
+            newMachinesObj.add(machineName, asMachine(oldMachineConfObj, envName, machineName));
+            recipeServices.put(machineName, asService(oldMachineConfObj, envName, machineName));
+        }
+        newEnvObj.add("machines", newMachinesObj);
+        // adapt recipe
+        final JsonObject recipeObj = new JsonObject();
+        recipeObj.addProperty("type", "compose");
+        recipeObj.addProperty("contentType", "application/x-yaml");
+        recipeObj.addProperty("content", new Yaml().dumpAsMap(singletonMap("services", recipeServices)));
+        newEnvObj.add("recipe", recipeObj);
+        return newEnvObj;
+    }
 
+    /** Converts an old machine configuration to a new format. */
+    private static JsonObject asMachine(JsonObject oldMachineConfObj, String envName, String machineName) throws BadRequestException {
+        final JsonObject newMachineObj = new JsonObject();
         // If machine is dev machine then new machine must contain ws-agent in agents list
         if (oldMachineConfObj.has("dev")) {
             final JsonElement dev = oldMachineConfObj.get("dev");
@@ -229,46 +225,36 @@ public class WorkspaceConfigAdapter {
                 newMachineObj.add("agents", agents);
             }
         }
-
-        // Convert convert servers
-        if (oldMachineConfObj.has("servers")) {
-            if (!oldMachineConfObj.get("servers").isJsonArray()) {
-                throw new BadRequestException(format("Bad format of the servers in machine '%s:%s', json array required",
+        // It is up to component which uses adapted object
+        // to decide whether servers required or not
+        if (!oldMachineConfObj.has("servers")) {
+            return newMachineObj;
+        }
+        if (!oldMachineConfObj.get("servers").isJsonArray()) {
+            throw new BadRequestException(format("Bad format of the servers in machine '%s:%s', servers must be json array",
+                                                 envName,
+                                                 machineName));
+        }
+        final JsonObject newServersObj = new JsonObject();
+        for (JsonElement serversEl : oldMachineConfObj.get("servers").getAsJsonArray()) {
+            final JsonObject oldServerObj = serversEl.getAsJsonObject();
+            if (!oldServerObj.has("ref")) {
+                throw new BadRequestException(format("Bad format of server in machine '%s:%s', server must contain ref",
                                                      envName,
                                                      machineName));
             }
-            final JsonObject newServersObj = new JsonObject();
-            for (JsonElement serversEl : oldMachineConfObj.get("servers").getAsJsonArray()) {
-                if (!serversEl.isJsonObject()) {
-                    throw new BadRequestException(format("Bad format of server in machine '%s:%s', json object required",
-                                                         envName,
-                                                         machineName));
-                }
-                final JsonObject oldServerObj = serversEl.getAsJsonObject();
-                if (!oldServerObj.has("ref")) {
-                    throw new BadRequestException(format("Bad format of server in machine '%s:%s', server must contain ref",
-                                                         envName,
-                                                         machineName));
-                }
-                final String ref = oldServerObj.get("ref").getAsString();
-                final JsonObject newServerObj = new JsonObject();
-                if (oldServerObj.has("port")) {
-                    newServerObj.add("port", oldServerObj.get("port"));
-                }
-                if (oldServerObj.has("protocol")) {
-                    newServerObj.add("protocol", oldServerObj.get("protocol"));
-                }
-                newServersObj.add(ref, newServerObj);
-            }
-            newMachineObj.add("servers", newServersObj);
+            final String ref = oldServerObj.get("ref").getAsString();
+            oldServerObj.remove("ref");
+            oldServerObj.remove("path");
+            newServersObj.add(ref, oldServerObj);
         }
+        newMachineObj.add("servers", newServersObj);
         return newMachineObj;
     }
 
     /** Converts machine configuration to service. */
     private Service asService(JsonObject machineObj, String envName, String machineName) throws BadRequestException, ServerException {
         final Service service = new Service();
-
         // Convert machine source
         if (!machineObj.has("source") || !machineObj.get("source").isJsonObject()) {
             throw new BadRequestException(format("Bad format, source for machine '%s:%s' is missing",
@@ -276,20 +262,17 @@ public class WorkspaceConfigAdapter {
                                                  machineName));
         }
         final JsonObject sourceObj = machineObj.getAsJsonObject("source");
-
-        // Convert source type
-        if (!sourceObj.has("type") || !sourceObj.get("type").isJsonPrimitive()) {
+        if (!sourceObj.has("type")) {
             throw new BadRequestException(format("Bad format, machine '%s:%s', type is missing",
                                                  envName,
                                                  machineName));
         }
-
         final String type = sourceObj.get("type").getAsString();
         // type = image                 - becomes service -> image
         // type = dockerfile + location - becomes service -> build -> context = location
         // type = dockerfile + content  - becomes service -> build -> context = generated_recipe_location
         if ("dockerfile".equals(type)) {
-            final String contextLink;g
+            final String contextLink;
             if (sourceObj.has("content")) {
                 final RecipeDescriptor rd;
                 try {
@@ -316,17 +299,21 @@ public class WorkspaceConfigAdapter {
         } else {
             throw new BadRequestException(format("Bad format, type '%s' is not supported", type));
         }
-
         // limits.ram(mb) - service -> mem_limit(b)
         if (machineObj.has("limits")) {
             final JsonObject limits = machineObj.getAsJsonObject("limits");
             if (limits.has("ram")) {
-                service.setMemoryLimit(1024L * 1024L * limits.get("ram").getAsInt());
+                final Integer ram = tryParse(limits.get("ram").getAsString());
+                if (ram == null || ram < 0) {
+                    throw new BadRequestException(format("Bad format, machine '%s:%s' ram required to be an unsigned integer value",
+                                                         envName,
+                                                         machineName));
+                }
+                service.setMemoryLimit(1024L * 1024L * ram);
             }
         }
-
         // env1=val - environment: -env1=env2
-        if (machineObj.has("envVariables")) {
+        if (machineObj.has("envVariables") && machineObj.get("envVariables").isJsonObject()) {
             final List<String> envList = machineObj.getAsJsonObject("envVariables")
                                                    .entrySet()
                                                    .stream()

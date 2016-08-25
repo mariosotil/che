@@ -10,9 +10,12 @@
  *******************************************************************************/
 package org.eclipse.che.api.workspace.server;
 
+import com.google.common.io.CharStreams;
+import com.google.common.io.Files;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
+import org.eclipse.che.api.core.BadRequestException;
 import org.eclipse.che.api.core.rest.HttpJsonRequest;
 import org.eclipse.che.api.core.rest.HttpJsonRequestFactory;
 import org.eclipse.che.api.core.rest.HttpJsonResponse;
@@ -23,12 +26,15 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.testng.MockitoTestNGListener;
 import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.DataProvider;
 import org.testng.annotations.Listeners;
 import org.testng.annotations.Test;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.Reader;
+import java.net.URL;
 
 import static org.eclipse.che.api.core.util.LinksHelper.createLink;
 import static org.eclipse.che.api.machine.shared.Constants.LINK_REL_GET_RECIPE_SCRIPT;
@@ -36,15 +42,19 @@ import static org.mockito.Matchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.testng.Assert.assertEquals;
+import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertTrue;
 
 /**
+ * Tests of {@link WorkspaceConfigAdapter}.
+ *
  * @author Yevhenii Voevodin
  */
 @Listeners(MockitoTestNGListener.class)
 public class WorkspaceConfigAdapterTest {
 
-    private static final String FILENAME = "old_workspace_config_format.json";
+    private static final String VALID_CONFIG_FILENAME    = "old_workspace_config_format.json";
+    private static final String INVALID_CONFIGS_DIR_NAME = "invalid_configs";
 
     @Mock
     private HttpJsonRequestFactory httpReqFactory;
@@ -61,11 +71,16 @@ public class WorkspaceConfigAdapterTest {
         final HttpJsonRequest request = mock(HttpJsonRequest.class, new SelfReturningAnswer());
         when(httpReqFactory.fromUrl(any())).thenReturn(request);
         when(request.request()).thenReturn(response);
+        // for the 'site' machine a new recipe should be created
+        final RecipeDescriptor rd = DtoFactory.newDto(RecipeDescriptor.class);
+        rd.getLinks().add(createLink("GET", "https://test/test_recipe", LINK_REL_GET_RECIPE_SCRIPT));
+        when(response.asDto(any())).thenReturn(rd);
     }
 
     @Test
     public void testWorkspaceConfigAdaptation() throws Exception {
-        final JsonObject newConfig = configAdapter.adapt(loadTestObject());
+        final String content = loadContent(VALID_CONFIG_FILENAME);
+        final JsonObject newConfig = configAdapter.adapt(new JsonParser().parse(content).getAsJsonObject());
 
         // The type of environments must be changed from array to map
         assertTrue(newConfig.has("environments"), "contains environments object");
@@ -113,10 +128,6 @@ public class WorkspaceConfigAdapterTest {
         // check 'site' machine
         assertTrue(machinesObj.has("site"), "'machines' contains machine with name 'site'");
         assertTrue(machinesObj.get("site").isJsonObject(), "site machine is json object");
-        // for the 'site' machine a new recipe should be created
-        final RecipeDescriptor rd = DtoFactory.newDto(RecipeDescriptor.class);
-        rd.getLinks().add(createLink("GET", "https://test/test_recipe", LINK_REL_GET_RECIPE_SCRIPT));
-        when(response.asDto(any())).thenReturn(rd);
 
         // check environment recipe
         assertTrue(environmentObj.has("recipe"), "environment contains recipe");
@@ -138,14 +149,36 @@ public class WorkspaceConfigAdapterTest {
                                                              "  site:\n" +
                                                              "    build:\n" +
                                                              "      context: https://test/test_recipe\n" +
-                                                             "    mem_limit: 1073741824");
+                                                             "    mem_limit: 1073741824\n");
     }
 
-    private static JsonObject loadTestObject() throws IOException {
+    @Test(expectedExceptions = BadRequestException.class, dataProvider = "invalidConfigs")
+    public void testNotValidWorkspaceConfigAdaptations(String filename) throws Exception {
+        final String content = loadContent(INVALID_CONFIGS_DIR_NAME + File.separatorChar + filename);
+
+        new WorkspaceConfigAdapter(httpReqFactory).adapt(new JsonParser().parse(content).getAsJsonObject());
+    }
+
+    @DataProvider
+    public static Object[][] invalidConfigs() throws Exception {
+        final URL dir = Thread.currentThread()
+                              .getContextClassLoader()
+                              .getResource(INVALID_CONFIGS_DIR_NAME);
+        assertNotNull(dir);
+        final File[] files = new File(dir.toURI()).listFiles();
+        assertNotNull(files);
+        final Object[][] result = new Object[files.length][1];
+        for (int i = 0; i < files.length; i++) {
+            result[i][0] = files[i].getName();
+        }
+        return result;
+    }
+
+    private static String loadContent(String filename) throws IOException {
         try (Reader r = new InputStreamReader(Thread.currentThread()
                                                     .getContextClassLoader()
-                                                    .getResourceAsStream(FILENAME))) {
-            return new JsonParser().parse(r).getAsJsonObject();
+                                                    .getResourceAsStream(filename))) {
+            return CharStreams.toString(r);
         }
     }
 }
