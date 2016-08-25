@@ -30,6 +30,8 @@ import org.eclipse.che.api.machine.shared.dto.MachineConfigDto;
 import org.eclipse.che.api.machine.shared.dto.MachineSourceDto;
 import org.eclipse.che.api.machine.shared.dto.ServerConfDto;
 import org.eclipse.che.api.workspace.shared.dto.EnvironmentDto;
+import org.eclipse.che.api.workspace.shared.dto.EnvironmentRecipeDto;
+import org.eclipse.che.api.workspace.shared.dto.ExtendedMachineDto;
 import org.eclipse.che.api.workspace.shared.dto.ProjectConfigDto;
 import org.eclipse.che.api.workspace.shared.dto.SourceStorageDto;
 import org.eclipse.che.api.workspace.shared.dto.WorkspaceConfigDto;
@@ -128,31 +130,14 @@ public class FactoryBuilderTest {
     @DataProvider(name = "notValidParamsProvider")
     public static Object[][] notValidParamsProvider() throws URISyntaxException, IOException, NoSuchMethodException {
         Factory factory = prepareFactory();
-        EnvironmentDto environmentDto = factory.getWorkspace().getEnvironments().get(0);
-//        environmentDto.getMachineConfigs().add(dto.createDto(MachineConfigDto.class).withType(null));
+        EnvironmentDto environmentDto = factory.getWorkspace().getEnvironments().values().iterator().next();
+        environmentDto.getRecipe().withType(null);
+
         return new Object[][] {
                 {dto.clone(factory).withWorkspace(factory.getWorkspace().withDefaultEnv(null)) },
                 {dto.clone(factory).withWorkspace(factory.getWorkspace().withEnvironments(singletonMap("test", environmentDto))) }
         };
     }
-
-    @Test(dataProvider = "sameAsDefaultParamsProvider")
-    public void shouldAllowUsingParamsWIthValueLikeDefaultForType(Factory factory)
-            throws InvocationTargetException, IllegalAccessException, ApiException, NoSuchMethodException {
-        factoryBuilder.checkValid(factory);
-    }
-
-    @DataProvider(name = "sameAsDefaultParamsProvider")
-    public static Object[][] sameAsDefaultParamsProvider() throws URISyntaxException, IOException, NoSuchMethodException {
-        Factory factory = prepareFactory();
-        EnvironmentDto environmentDto = factory.getWorkspace().getEnvironments().get(0);
-//        environmentDto.getMachineConfigs().get(0).withDev(false)
-//                                                .withLimits(dto.newDto(LimitsDto.class).withRam(0));
-        return new Object[][] {
-                {dto.clone(factory).withWorkspace(factory.getWorkspace().withEnvironments(singletonMap("test", environmentDto))) }
-        };
-    }
-
 
     @Test
     public void shouldBeAbleToValidateV4_0WithTrackedParamsWithoutAccountIdIfOnPremisesIsEnabled() throws Exception {
@@ -191,6 +176,13 @@ public class FactoryBuilderTest {
                                                                                            .withPort("9090/udp")
                                                                                            .withProtocol("someprotocol")))
                                             .withEnvVariables(singletonMap("key1", "value1"));
+        EnvironmentDto environment = dto.createDto(EnvironmentDto.class)
+                                        .withRecipe(newDto(EnvironmentRecipeDto.class).withType("compose")
+                                                                                      .withContentType("application/x-yaml")
+                                                                                      .withContent("some content"))
+                                        .withMachines(singletonMap("devmachine",
+                                                                   newDto(ExtendedMachineDto.class).withAgents(singletonList("ws-agent"))));
+
         WorkspaceConfigDto workspaceConfig = dto.createDto(WorkspaceConfigDto.class)
                                                 .withProjects(singletonList(project))
                                                 .withCommands(singletonList(dto.createDto(CommandDto.class)
@@ -198,12 +190,7 @@ public class FactoryBuilderTest {
                                                                                .withType("maven")
                                                                                .withCommandLine("mvn test")))
                                                 .withDefaultEnv("env1")
-                                                .withEnvironments(singletonMap("test", dto.createDto(EnvironmentDto.class)
-//                                                                                   .withMachineConfigs(singletonList(machineConfig))
-//                                                                                   .withRecipe(dto.createDto(RecipeDto.class)
-//                                                                                                  .withType("sometype")
-//                                                                                                  .withScript("some script"))
-                                                ));
+                                                .withEnvironments(singletonMap("test", environment));
         Ide ide = dto.createDto(Ide.class)
                      .withOnAppClosed(dto.createDto(OnAppClosed.class)
                                          .withActions(singletonList(dto.createDto(Action.class).withId("warnOnClose"))))
