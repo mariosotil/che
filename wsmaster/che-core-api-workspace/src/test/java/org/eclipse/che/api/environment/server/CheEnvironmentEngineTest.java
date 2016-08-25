@@ -22,6 +22,7 @@ import org.eclipse.che.api.environment.server.compose.ComposeMachineInstanceProv
 import org.eclipse.che.api.environment.server.compose.ComposeServicesStartStrategy;
 import org.eclipse.che.api.environment.server.exception.EnvironmentNotRunningException;
 import org.eclipse.che.api.machine.server.MachineInstanceProviders;
+import org.eclipse.che.api.machine.server.dao.SnapshotDao;
 import org.eclipse.che.api.machine.server.exception.MachineException;
 import org.eclipse.che.api.machine.server.model.impl.LimitsImpl;
 import org.eclipse.che.api.machine.server.model.impl.MachineConfigImpl;
@@ -78,12 +79,15 @@ public class CheEnvironmentEngineTest {
     MachineInstanceProviders machineInstanceProviders;
     @Mock
     EventService             eventService;
+    @Mock
+    SnapshotDao snapshotDao;
 
     CheEnvironmentEngine engine;
 
     @BeforeMethod
     public void setUp() throws Exception {
-        engine = spy(new CheEnvironmentEngine(machineInstanceProviders,
+        engine = spy(new CheEnvironmentEngine(snapshotDao,
+                                              machineInstanceProviders,
                                               "/tmp",
                                               256,
                                               eventService,
